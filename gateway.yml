@@ -10,11 +10,40 @@ eureka:
   
 secret-key: secret
 COOKIE: authenticate
-       
 
 internal.authentication.secret-key : STACKQUOTIENT-INTERNAL-DEV-SECRET-KEY
 partners.authentication.secret-key : STACKQUOTIENT-PARTNERS-DEV-SECRET-KEY
 
+# Time after which request for a resouce should be broken and fallback must be invoked
+circuitbreaker.request.timeout.inseconds: 90
+
+# TODO: If number of required secure headers increases, instead of string use key value pair for setting headers
+# Secure headers, added as response header for 401 and 403 responses
+# max-age value is in seconds and is set to 180 days
+response.secure-headers.hsts: max-age=15552000; includeSubDomains
+# Secure headers, added as response header for 401 and 403 responses
+response.secure-headers.csp: "default-src 'self' https:; font-src 'self' https: data:; img-src 'self' https: data:; object-src 'none'; script-src https:; style-src 'self' https: 'unsafe-inline'"
+
+gatewaySecurityExcludeRoutes: /, /*.ico, /*.js, /assets/*.jpeg,
+  /assets/*.png,/assets/*.svg, /*.jpg, /*.css,/*.woff2, /*.woff,
+  /assets/i18n/**,
+  /rsc/svcm,
+  /usermanagementservice/api/v1/login/**,
+  /usermanagementservice/api/v1/oauth/**,
+  /usermanagementservice-cts/api/v1/login/**,
+  /usermanagementservice-cts/api/v1/oauth/**,
+  /usermanagementservice-gps-b2cin/api/v1/login/**,
+  /usermanagementservice-gps-b2cin/api/v1/oauth/**,
+  /codingquizplayengine/api/v1/quizplay/codingengine/evalResults,
+  /calibrations/**,
+  /usermanagementservice/calibrations/**,
+  /usermanagementservice/api/v1/login/otp/**,
+  /usermanagementservice/resend/**
+
+gatewaySecurityInternalRoutes: /codingquizplayengine/api/v1/internal/**, /quizinventory/api/v1/internal/**,
+  /usermanagementservice/api/v1/internal/**, /quizplayservice/api/v1/internal/**, /usermanagementservice-gps-b2cin/api/v1/internal/**, /quizplayservice-gps-b2cin/api/v1/internal/**
+
+gatewaySecurityPartnersRoutes: /usermanagementservice/api/v1/partners/**, /quizplayservice/api/v1/partners/**
 
 # gateway.security.excluded.routes: /, /*.ico, /*.js, /assets/*.jpeg,
 #           /assets/*.png,/assets/*.svg, /*.jpg, /*.css,/*.woff2, /*.woff,
@@ -38,6 +67,15 @@ partners.authentication.secret-key : STACKQUOTIENT-PARTNERS-DEV-SECRET-KEY
 spring:
   cloud:
     gateway:
+      default-filters:
+      - SecureHeaders
+      - PreserveHostHeader
+      filter:
+        secure-headers:
+          # For customization, Follow https://docs.spring.io/spring-cloud-gateway/docs/current/reference/html/#the-secureheaders-gatewayfilter-factory 
+          strict-transport-security: max-age=15552000; includeSubDomains
+          # Enabled http for loading scripts
+          content-security-policy: "default-src 'self' https:; font-src 'self' https: data:; img-src 'self' https: data:; object-src 'none'; script-src https: http: 'unsafe-eval'; style-src 'self' https: 'unsafe-inline'"
       routes:
       - id: usermanagement
         uri: lb://usermanagementservice
@@ -45,6 +83,15 @@ spring:
           - Path=/usermanagementservice/**
         filters:
           - RewritePath=/usermanagementservice(?<segment>/?.*), $\{segment}
+          - name: CircuitBreaker
+            args:
+              name: usermanagementCircuitBreaker
+              fallbackUri: forward:/fallback/error
+              statusCodes:
+                - 503
+                - 500
+                - 502
+                - 504
 
       - id: quizinventory
         uri: lb://quizinventory
@@ -52,6 +99,15 @@ spring:
           - Path=/quizinventory/**
         filters:
           - RewritePath=/quizinventory(?<segment>/?.*), $\{segment}
+          - name: CircuitBreaker
+            args:
+              name: quizinventoryCircuitBreaker
+              fallbackUri: forward:/fallback/error
+              statusCodes:
+                - 503
+                - 500
+                - 502
+                - 504
 
       - id: questioninventory
         uri: lb://questioninventory
@@ -59,6 +115,15 @@ spring:
           - Path=/questioninventory/**
         filters:
           - RewritePath=/questioninventory(?<segment>/?.*), $\{segment}
+          - name: CircuitBreaker
+            args:
+              name: questioninventoryCircuitBreaker
+              fallbackUri: forward:/fallback/error
+              statusCodes:
+                - 503
+                - 500
+                - 502
+                - 504
 
       - id: quizplay
         uri: lb://quizplayservice
@@ -66,6 +131,15 @@ spring:
           - Path=/quizplayservice/**
         filters:
           - RewritePath=/quizplayservice(?<segment>/?.*), $\{segment}
+          - name: CircuitBreaker
+            args:
+              name: quizplayCircuitBreaker
+              fallbackUri: forward:/fallback/error
+              statusCodes:
+                - 503
+                - 500
+                - 502
+                - 504
 
       - id: resourcesservice
         uri: lb://resourcesservice
@@ -73,6 +147,15 @@ spring:
           - Path=/resourcesservice/**
         filters:
           - RewritePath=/resourcesservice(?<segment>/?.*), $\{segment}
+          - name: CircuitBreaker
+            args:
+              name: resourcesserviceCircuitBreaker
+              fallbackUri: forward:/fallback/error
+              statusCodes:
+                - 503
+                - 500
+                - 502
+                - 504
      
       - id: semanticservice
         uri: lb://semanticservice
@@ -80,20 +163,54 @@ spring:
           - Path=/semanticservice/**
         filters:
           - RewritePath=/semanticservice(?<segment>/?.*), $\{segment}  
+          - name: CircuitBreaker
+            args:
+              name: semanticserviceCircuitBreaker
+              fallbackUri: forward:/fallback/error
+              statusCodes:
+                - 503
+                - 500
+                - 502
+                - 504
       
       - id: codingquizplay
         uri: lb://codingquizplayengine
         predicates:
           - Path=/codingquizplayengine/**
         filters:
-          - RewritePath=/codingquizplayengine(?<segment>/?.*), $\{segment} 
+          - RewritePath=/codingquizplayengine(?<segment>/?.*), $\{segment}
+          - name: CircuitBreaker
+            args:
+              name: codingquizplayCircuitBreaker
+              fallbackUri: forward:/fallback/error
+              statusCodes:
+                - 503
+                - 500
+                - 502
+                - 504
+
+      - id: livequizplayengine
+        uri: lb://livequizplayengine
+        predicates:
+          - Path=/livequizplayengine/**
+        filters:
+          - RewritePath=/livequizplayengine(?<segment>/?.*), $\{segment}
+          - name: CircuitBreaker
+            args:
+              name: livequizplayengineCircuitBreaker
+              fallbackUri: forward:/fallback/error
+              statusCodes:
+                - 503
+                - 500
+                - 502
+                - 504
 
       - id: usermanagementservice-cts
         uri: lb://usermanagementservice-cts
         predicates:
           - Path=/usermanagementservice-cts/**
         filters:
-          - RewritePath=/usermanagementservice-cts(?<segment>/?.*), $\{segment} 
+          - RewritePath=/usermanagementservice-cts(?<segment>/?.*), $\{segment}
 
       - id: quizplay-cts
         uri: lb://quizplayservice-cts
@@ -116,6 +233,13 @@ spring:
         filters:
           - RewritePath=/usermanagementservice-ibm(?<segment>/?.*), $\{segment} 
 
+      - id: usermanagementservice-gps-b2cin
+        uri: lb://usermanagementservice-gps-b2cin
+        predicates:
+          - Path=/usermanagementservice-gps-b2cin/**
+        filters:
+          - RewritePath=/usermanagementservice-gps-b2cin(?<segment>/?.*), $\{segment
+
       - id: quizplay-ibm
         uri: lb://quizplayservice-ibm
         predicates:
@@ -128,17 +252,39 @@ spring:
         predicates:
           - Path=/codingquizplayengine-ibm/**
         filters:
-          - RewritePath=/codingquizplayengine-ibm(?<segment>/?.*), $\{segment}         
+          - RewritePath=/codingquizplayengine-ibm(?<segment>/?.*), $\{segment}
 
+      - id: quizplay-gps-b2cin
+        uri: lb://quizplay-gps-b2cin
+        predicates:
+          - Path=/quizplay-gps-b2cin/**
+        filters:
+          - RewritePath=/quizplay-gps-b2cin(?<segment>/?.*), $\{segment}
+      
+      - id: codingquizplay-gps-b2cin
+        uri: lb://codingquizplay-gps-b2cin
+        predicates:
+          - Path=/codingquizplay-gps-b2cin/**
+        filters:
+          - RewritePath=/codingquizplay-gps-b2cin(?<segment>/?.*), $\{segment}
+     
+     
       - id: webapplication
         uri: lb://webapplication
         predicates:
           - Path=/**
         filters:
-          - RewritePath=(?<segment>/?.*), $\{segment}    
+          - RewritePath=(?<segment>/?.*), $\{segment}
+          - name: CircuitBreaker
+            args:
+              name: webapplicationCircuitBreaker
+              fallbackUri: forward:/fallback/error
+              statusCodes:
+                - 503
+                - 500
+                - 502
+                - 504
 
-      
-     
       
 
       # - id: usermanagementservice 
